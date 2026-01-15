@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  edge-connector:
+    build:
+      context: . 
+      dockerfile: Dockerfile
+    image: edge-connector
+    container_name: edge-connector
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./Workspace:/home/workspace      # for the shared memory
+      - ./:/home/app                        # *ONLY DEBUGGING PURPOSE / otherwise remove this line
+    working_dir: /home/app                  # set working directory inside container
+    command: ["python", "main.py"]          # override CMD so it runs from /home/app
+    restart: unless-stopped

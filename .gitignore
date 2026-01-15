@@ -1,0 +1,7 @@
+.venv
+secrets
+*.pyc
+__pycache__
+*.crt
+*.key
+notebook.ipynb
