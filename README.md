@@ -8,6 +8,8 @@ Technically, `Edge-Connector` is not strictly required in your system, if your a
 
 However, using `Edge-Connector` will allow the separation of logics between dataspace management and your system.
 
+
+
 ## To Run
 
 ```bash
@@ -16,6 +18,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
+
+**pythone 3.10+** is used.
 
 To check, access `http://localhost:8001/` in your browser. You should see a welcome message.
 You can also check `http://localhost:8001/docs` for API references.
