@@ -18,7 +18,7 @@ python3 -m venv .venv
 .venv/Scripts/activate
 ```
 
-For Ubuntu or WSL or similar:
+For Linux systems (Ubuntu, WSL, etc.):
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
