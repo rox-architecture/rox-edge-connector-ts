@@ -1,8 +1,12 @@
 # Edge-Connector
 
 `Edge-Connector` is a small server running on your local system to provide the following services:
-- Ensure that your input data are correctly in the KIT format.
-- 
+- Ensure that your input data are correctly provided in the KIT format.
+- Automate cumbersome interactions with the dataspace for you.
+
+Technically, `Edge-Connector` is not strictly required in your system, if your application system handles the data format checking and interaction with the dataspace server (where individual user connectors are running).
+
+However, using `Edge-Connector` will allow the separation of logics between dataspace management and your system.
 
 ## To Run
 
@@ -14,7 +18,7 @@ python main.py
 ```
 
 To check, access `http://localhost:8001/` in your browser. You should see a welcome message.
-You can also check `http://localhost:8000/docs` for API references.
+You can also check `http://localhost:8001/docs` for API references.
 
 ## Providing your certificates
 
