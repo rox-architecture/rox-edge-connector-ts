@@ -19,7 +19,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-**pythone 3.10+** is used.
+**python 3.10+** is used.
 
 To check, access `http://localhost:8001/` in your browser. You should see a welcome message.
 You can also check `http://localhost:8001/docs` for API references.
