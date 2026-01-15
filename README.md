@@ -12,9 +12,20 @@ However, using `Edge-Connector` will allow the separation of logics between data
 
 ## To Run
 
+For Windows:
+```bash
+python3 -m venv .venv
+.venv/Scripts/activate
+```
+
+For Ubuntu or WSL or similar:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+Then, 
+```bash
 pip install -r requirements.txt
 python main.py
 ```
