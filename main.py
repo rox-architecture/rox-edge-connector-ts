@@ -3,7 +3,6 @@ from src.utils import *
 from src.schemas import *
 import uvicorn
 import os
-from plugins import minio_routes
 
 #####################################################
 #                 Global Variables                  #
@@ -156,10 +155,10 @@ async def _search_kits(query: str):
 async def _edit_asset(input: editAssetData):
     return await edit_asset(input.context, input.asset_id, input.properties, input.dataAddress)
 
-@app.get("/offers/{asset_id}")
+@app.get("/provider/{provider_id}/offers/{asset_id}")
 # Purpose: get all offers linked to an asset id 
-async def _kit_contracts(asset_id: str):
-    return await get_offers_by_asset_id(asset_id)
+async def _kit_contracts(provider_id: str, asset_id: str):
+    return await get_target_offer_by_id(provider_id, asset_id)
 
 @app.post("/http/transfer")
 # Purpose: Return the negotiation id for an http type asset
@@ -200,7 +199,7 @@ async def _get_edrs(page: int=0, limit: int=100):
 #####################################################
 #            Plugin Routers                         #
 #####################################################
-app.include_router(minio_routes.minio_router, prefix="/minio")
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

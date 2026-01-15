@@ -4,8 +4,10 @@ from fastapi import HTTPException
 import re
 import asyncio
 from dotenv import load_dotenv
+from pathlib import Path
+import json
+import shutil
 from fastapi.responses import JSONResponse, StreamingResponse
-
 
 
 #####################################################
@@ -77,8 +79,11 @@ async def create_contract(contract_id, policy_id, asset_id):
     return response.json()
 
 # retrieve various objects from dataspace
-async def get_objects(type, limit=100, page=0, filter=[]): 
-    connector_name = os.getenv("CONNECTOR_NAME")
+async def get_objects(type, limit=100, page=0, filter=None, connector_name=None): 
+    if connector_name is None:
+        connector_name = os.getenv("CONNECTOR_NAME")
+    if filter is None:
+        filter = []
     token_header = await get_token_header()
     if type == 'asset':    
         url = f"{base_url}/connectors/{connector_name}/cp/management/v3/assets/request"
@@ -217,13 +222,26 @@ async def get_federated_catalog():
     response.raise_for_status()
     return response.json()
 
-# return all the contract information by an asset id
-async def get_offers_by_asset_id(id):
-    url = f"{base_url}/ui//catalog"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-    response.raise_for_status()
-    return
+# return the asset metadata provided by the target provider
+# TODO: re-implement this without using the federated catalogue
+async def get_target_offer_by_id(provider_id, asset_id):
+    fed_catalog = await get_federated_catalog()
+
+    for cat in fed_catalog:
+        if cat["dspace:participantId"] != provider_id:
+            continue
+
+        datasets = cat["dcat:dataset"]
+        if not isinstance(datasets, list): # caset datasets to an array
+            datasets = [datasets]
+        if not datasets: # skip if datasets is empty
+            continue
+
+        for asset in datasets:
+            if asset["kit_name"] != asset_id:
+                continue
+            return asset
+    return {}
 
 
 # return a negotiation id
@@ -275,24 +293,25 @@ async def get_transfer_credentials(connector_name, asset_id, token_header):
     endpoint = response.json()["endpoint"]
     return endpoint, access_token
 
+
 # TODO: currently, we create negotiation id every single time
-async def http_transfer(connector_url, bpn, policy, asset_id, payload=None, post_action=None):
+async def http_transfer(connector_url, bpn, policy, asset_id, payload=None, post_action=False):
     token_header = await get_token_header()
     connector_name = os.getenv("CONNECTOR_NAME")
 
-    # Step 1: search for an existing EDR negotiation id
+    # Search for an existing EDR negotiation id
     endpoint, token = await get_transfer_credentials(connector_name, asset_id, token_header)
+    print(endpoint)
 
-    # Step 1.5: if we need to create a new negotiation id
+    # If we need to create a new negotiation id
     if endpoint == None:
         negotiation_id = await create_http_negotiation(connector_name, connector_url, policy, bpn, asset_id, token_header)
         await asyncio.sleep(5) # we need around 10 seconds to wait before the agreement id is generated
         endpoint, token = await get_transfer_credentials(connector_name, asset_id, token_header)
 
-    # Step 2: activate transfer
+    # Activate transfer
     print("Data transfer started")
     headers = {"Authorization": token}
-
     async with httpx.AsyncClient() as client:
         
         if payload == None:
@@ -300,13 +319,41 @@ async def http_transfer(connector_url, bpn, policy, asset_id, payload=None, post
         else:
             response = await client.post(endpoint, headers=headers, json=payload)
 
-    # Step 3: handle file correctly based on the content-type
-    print("Data handling started")
-    livedata = False
-    filename = "mysave"
+    # Handle file correctly based on the content-type
+    print("Starting the data transfer")
+
+    # create the workspace folder if not exist
+    workspace = Path("KIT-Workspace")
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # get the target asset's metadata to get information on how to handle data
+    asset_metadata = await get_target_offer_by_id(bpn, asset_id)
+    asset_metadata.pop("dcat:distribution", None)
+    print(asset_metadata)
+    kit_name = asset_metadata["kit_name"]
+    if "default_file_name" in asset_metadata:
+        filename = asset_metadata["default_file_name"]
+    else:
+        filename = kit_name
     
+    kit_folder = workspace / kit_name
+    file_path = kit_folder / filename
+
+    # delete the kit folder, if exists, for overwritting
+    if kit_folder.exists():
+        shutil.rmtree(kit_folder)
+    kit_folder.mkdir(parents=True, exist_ok=True)
+
+    # TODO: live data stream must be handled here
+    livedata = False
+    
+    # write the metadata in the folder
+    metadata_path = workspace / kit_name / "metadata.json"
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(asset_metadata, f, indent=4, ensure_ascii=False)
+
     if not livedata: # save into a file
-        with open(filename, "wb") as f:
+        with open(file_path, "wb") as f:
             async for chunk in response.aiter_bytes():
                 f.write(chunk)
     
@@ -406,6 +453,7 @@ async def search_by_query(query):
 
     for catalog in fed_catalog:
         datasets = catalog["dcat:dataset"]
+        bpn = catalog["dspace:participantId"]
         if not isinstance(datasets, list): # caset datasets to an array
             datasets = [datasets]
         if not datasets: # skip if datasets is empty
@@ -417,6 +465,7 @@ async def search_by_query(query):
                                 if key not in {"@id","@type","odrl:hasPolicy","dcat:distribution","semantic_model",}},
                             **dataset.get("semantic_model", {})}
             preprocessed = {k.casefold(): v for k, v in preprocessed.items()} # make key all casefold()
+            preprocessed["bpn"] = bpn
             if check_match(preprocessed, tokens):
                 filtered_datasets.append(dataset)
         catalog["dcat:dataset"] = filtered_datasets

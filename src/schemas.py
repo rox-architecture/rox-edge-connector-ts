@@ -49,7 +49,7 @@ class createHttpBasicKIT(BaseModel): # Used to create an HTTP Basic KIT
 
     offerType: Literal["data", "service"]
     default_file_name: str | None = None
-    default_postprocessing: str | None = None
+    postprocessing_cmd: str | None = None
     header: str | None = None
 
 # Done
