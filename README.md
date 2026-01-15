@@ -28,7 +28,7 @@ You can also check `http://localhost:8001/docs` for API references.
 
 `Edge-Connector` need your dataspace user certificate files in the working directory.
 This can be done by using the `KIT GUI` frontend or manually. 
-How to use the frontend is explained in the `KIT GUI` repository.
+How to use the frontend is explained in the `KIT GUI` repository (https://github.com/rox-architecture/rox-kit-gui).
 For doing it manually, go to [https://vision-x-dataspace.base-x-ecosystem.org/](https://vision-x-dataspace.base-x-ecosystem.org/) and login.
 Then download the certificate by clicking the button on the top-right menu. We will need `tls.crt` and `tls.key` files.
 Place them in the `Edge-Connector` directory (i.e., next to the main.py file).
