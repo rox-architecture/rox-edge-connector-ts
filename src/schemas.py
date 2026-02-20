@@ -1,34 +1,92 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Any
+from typing import Literal, Any, List
 
-# Done
-class createAwsBasicKIT(BaseModel): 
-    # General Information
-    asset_name: str = Field(..., min_length=1)   # must not be empty
+# class createAwsBasicKIT(BaseModel): 
+#     # General Information
+#     asset_name: str = Field(..., min_length=1)   # must not be empty
+#     version: str = Field(..., min_length=1)
+#     description: str = Field(..., min_length=1)
+#     tag: str | None = None
+#     business: str | None = None
+#     vision: str | None = None
+#     license: str | None = None
+
+#     # bucket information
+#     storage_url: str
+#     bucket_name: str
+#     storage_region: str
+#     storage_username: str
+#     storage_password: str
+#     object_path: str
+
+#     # semantic model
+#     semantic_model: dict = Field(..., min_length=1)
+#     icon: str | None = None
+
+class KitGeneralData(BaseModel): # General KIT data
+    kit_name: str = Field(..., min_length=1)
+    kit_type: Literal["basic", "composite"]
     version: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
+    offerType: Literal["file", "service"]
     tag: str | None = None
     business: str | None = None
     vision: str | None = None
     license: str | None = None
+    contact: str | None = None
+    standardisation: str | None = None
+    domain: str | None = None
 
-    # bucket information
-    storage_url: str
-    bucket_name: str
-    storage_region: str
-    storage_username: str
-    storage_password: str
-    object_path: str
+class HttpAccessData(BaseModel): # Access data for HTTP request
+    asset_type: Literal["http"]
+    url: str = Field(..., min_length=1)
+    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
+    need_req_body: bool
+    header: dict | None = None
 
-    # semantic model
-    semantic_model: dict = Field(..., min_length=1)
+class PortSpec(BaseModel):
+    name: str
+    type: str
+    description: str | None = None
+
+class AdditionalData(BaseModel):
+    execution_cmds: List[str]
+    auto_trigger: bool
+    default_file_name: str | None = None
+    inputs_summary: List[PortSpec] | None = None
+    outputs_summary: List[PortSpec] | None = None
     icon: str | None = None
 
-# Done
+class BasicKitData(BaseModel):
+    general_info: KitGeneralData
+    access_info: HttpAccessData # | AwsAccessData  # for the future work
+    semantic_model: dict = Field(..., min_length=1)
+    additional_info: AdditionalData | None = None
+
+class KitReference(BaseModel):
+    provider_id: str
+    kit_name: str
+    read_policy_id: str | None = None 
+    use_policy_id: str | None = None 
+
+class CompositeKitData(BaseModel):
+    general_info: KitGeneralData
+    access_info: HttpAccessData # | AwsAccessData
+    components: List[KitReference]
+    semantic_model: dict = Field(..., min_length=1)
+    additional_info: AdditionalData | None = None
+
+class KitDownloadRequest(BaseModel):
+    provider_id: str = Field(..., min_length=1)
+    connector_url: str = Field(..., min_length=1)
+    kit_name: str = Field(..., min_length=1)
+    request_body: dict | None = None
+    overwrite: bool | None = None
+
 class createHttpBasicKIT(BaseModel): # Used to create an HTTP Basic KIT
     # General Information
     kit_name: str = Field(..., min_length=1)   # must not be empty
-    kit_type: str = Literal["basic", "composite"]
+    kit_type: str = Literal["basic"]
     version: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     tag: str | None = None
@@ -36,7 +94,9 @@ class createHttpBasicKIT(BaseModel): # Used to create an HTTP Basic KIT
     vision: str | None = None
     license: str | None = None
     contact: str | None = None
-    
+    standardisation: str | None = None
+    domain: str | None = None
+
     # Asset location information
     url: str = Field(..., min_length=1)
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
@@ -76,25 +136,61 @@ class editAssetData(BaseModel):
     dataAddress: dict = Field(..., min_length=1)
 
 
-class AwsTransferRequestBody(BaseModel):
-    provider_id: str
-    asset_id: str
-    catalog_url: str
-    # minio information
-    minio_url: str
-    minio_username: str
-    minio_password: str
-    minio_bucket: str
-    minio_region: str
+class httpTransfer2url(BaseModel):
+    originator: str = Field(..., min_length=1)
+    agreement_id: str = Field(..., min_length=1)
+    endpoint_url: str = Field(..., min_length=1)
 
-class HttpTransferRequestBody(BaseModel):
-    provider_id: str
-    asset_id: str
-    catalog_url: str | None = None
-    # downloaded file
-    filename: str | None = None
-    payload: str | None = None
 
-class SearchFormat(BaseModel):
-    object_type: str
-    query: str
+# class createCompositeKIT(BaseModel):
+#     # General Information
+#     kit_name: str = Field(..., min_length=1)   # must not be empty
+#     kit_type: str = Literal["composite"]
+#     version: str = Field(..., min_length=1)
+#     description: str = Field(..., min_length=1)
+#     tag: str | None = None
+#     business: str | None = None
+#     vision: str | None = None
+#     license: str | None = None
+#     contact: str | None = None
+#     standardisation: str | None = None
+#     domain: str | None = None
+
+#     # Asset location information
+#     url: str = Field(..., min_length=1)
+#     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
+#     request_type: Literal["none", "application/json", "multipart/form-data", "application/octet-stream"]
+#     request_body: dict | None = None
+
+#     # semantic model
+#     semantic_model: dict = Field(..., min_length=1)
+#     icon: str | None = None
+
+#     offerType: Literal["data", "service"]
+#     default_file_name: str | None = None
+#     postprocessing_cmd: str | None = None
+#     header: str | None = None    
+
+
+# class AwsTransferRequestBody(BaseModel):
+#     provider_id: str
+#     asset_id: str
+#     catalog_url: str
+#     # minio information
+#     minio_url: str
+#     minio_username: str
+#     minio_password: str
+#     minio_bucket: str
+#     minio_region: str
+
+# class HttpTransferRequestBody(BaseModel):
+#     provider_id: str
+#     asset_id: str
+#     catalog_url: str | None = None
+#     # downloaded file
+#     filename: str | None = None
+#     payload: str | None = None
+
+# class SearchFormat(BaseModel):
+#     object_type: str
+#     query: str
