@@ -28,7 +28,7 @@ class KitGeneralData(BaseModel): # General KIT data
     kit_type: Literal["basic", "composite"]
     version: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
-    offerType: Literal["file", "service"]
+    offerType: Literal["data", "service"]
     tag: str | None = None
     business: str | None = None
     vision: str | None = None
@@ -41,20 +41,13 @@ class HttpAccessData(BaseModel): # Access data for HTTP request
     asset_type: Literal["http"]
     url: str = Field(..., min_length=1)
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
-    need_req_body: bool
+    request_type: str | None = None
+    request_body: dict | None = None
     header: dict | None = None
 
-class PortSpec(BaseModel):
-    name: str
-    type: str
-    description: str | None = None
-
 class AdditionalData(BaseModel):
-    execution_cmds: List[str]
-    auto_trigger: bool
+    execution_commands: str | None = None
     default_file_name: str | None = None
-    inputs_summary: List[PortSpec] | None = None
-    outputs_summary: List[PortSpec] | None = None
     icon: str | None = None
 
 class BasicKitData(BaseModel):
@@ -72,46 +65,22 @@ class KitReference(BaseModel):
 class CompositeKitData(BaseModel):
     general_info: KitGeneralData
     access_info: HttpAccessData # | AwsAccessData
-    components: List[KitReference]
+    components: List[KitReference] | None = None
     semantic_model: dict = Field(..., min_length=1)
     additional_info: AdditionalData | None = None
 
-class KitDownloadRequest(BaseModel):
+class KitAccessRequest(BaseModel):
     provider_id: str = Field(..., min_length=1)
     connector_url: str = Field(..., min_length=1)
     kit_name: str = Field(..., min_length=1)
     request_body: dict | None = None
     overwrite: bool | None = None
 
-class createHttpBasicKIT(BaseModel): # Used to create an HTTP Basic KIT
-    # General Information
-    kit_name: str = Field(..., min_length=1)   # must not be empty
-    kit_type: str = Literal["basic"]
-    version: str = Field(..., min_length=1)
-    description: str = Field(..., min_length=1)
-    tag: str | None = None
-    business: str | None = None
-    vision: str | None = None
-    license: str | None = None
-    contact: str | None = None
-    standardisation: str | None = None
-    domain: str | None = None
-
-    # Asset location information
-    url: str = Field(..., min_length=1)
-    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
-    request_type: Literal["none", "application/json", "multipart/form-data", "application/octet-stream"]
-    request_body: dict | None = None
-
-    # semantic model
-    semantic_model: dict = Field(..., min_length=1)
-    icon: str | None = None
-
-    offerType: Literal["data", "service"]
-    default_file_name: str | None = None
-    postprocessing_cmd: str | None = None
-    header: str | None = None
-
+class CatalogRequestData(BaseModel):
+    provider_id: str
+    connector_url: str
+    kit_name: str | None = None
+    
 # Done
 class createContract(BaseModel):
     contract_id : str

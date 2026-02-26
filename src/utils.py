@@ -25,7 +25,7 @@ connector = os.getenv("CONNECTOR_NAME")
 # return header for making http requests
 async def get_token_header():
     # If the edge-connector is interacting with the DLR dataspace
-    if os.getenv('DATASPACE').casefold() == 'DLR'.casefold():
+    if os.getenv('DATASPACE').casefold() == 'dlr':
         token_url = os.getenv("TOKEN_URL")
         payload = {
             "client_id": "api-client",
@@ -42,7 +42,7 @@ async def get_token_header():
             get_token_header.token = None
         return {"Authorization": f"Bearer {get_token_header.token}"}
     # If the edge-connector is interating with the T-System dataspace
-    elif os.getenv('DATASPACE').casefold() == 'TSI'.casefold():
+    elif os.getenv('DATASPACE').casefold() == 'tsi':
         api_key = os.getenv('API-KEY')
         return {"X-Api-Key": f"{api_key}", 
                 "content-type": "application/json"}
@@ -129,12 +129,13 @@ async def create_http_asset(kit_metadata, access_info):
     asset_name = kit_metadata['kit_name']
     asset_metadata = kit_metadata
 
-    proxy_method = 'true' if access_info['method'].casefold() != 'GET'.casefold() else 'false'
-    proxy_body = 'true' if access_info['need_req_body'] else 'false'
+    proxy_method = 'true' if access_info['method'].casefold() != 'get' else 'false'
+    proxy_body = 'true' if access_info['request_body'] else 'false'
+    # TODO: currently we assume that the request body is always a JSON body
 
     # build the header (not the header to datasapce)
     proxy_header = {}
-    if 'header' in access_info:
+    if isinstance(access_info['header'], dict) and access_info['header']:
         proxy_header = {f'header:{k}': v for k,v in access_info['header']}
 
     payload = {
@@ -239,7 +240,7 @@ async def get_federated_catalog():
     async with httpx.AsyncClient() as client:
         print(f"Dataspace API triggered: {url}")
         response = await client.get(url)
-    response.raise_for_status()
+        response.raise_for_status()
     return response.json()
 
 # return the asset metadata provided by the target provider
@@ -268,8 +269,68 @@ async def get_target_offer_by_id(provider_id, asset_id):
             asset['originator'] = originator
             asset['policy'] = asset['odrl:hasPolicy']
             return asset
+    # if not found
     return {}
 
+async def get_catalog(provider_id, connector_url, kit_name = None):
+    url = os.getenv('CATALOG_READ') # fetch the correct endpoint URL
+    token_header = await get_token_header()
+
+    payload = {
+        "@context": {
+            "@vocab": "https://w3id.org/edc/v0.0.1/ns/"
+        },
+        "@type": "CatalogRequest",
+        "counterPartyAddress": connector_url,
+        "counterPartyId": provider_id,
+        "protocol": "dataspace-protocol-http:2025-1",
+        "additionalScopes": [],
+        "querySpec": {
+            "offset": 0,
+            "limit": 100,
+            "sortOrder": "DESC",
+            "sortField": "fieldName",
+            "filterExpression": []
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        print(f"Dataspace API triggered: {url}")
+        response = await client.post(url, json=payload, headers=token_header)
+        response.raise_for_status()
+
+    # post-processing of the catalog to filter out KITs or a specific KIT
+    # TODO: this can be done by making the filterExpression 
+    dataset = response.json()['dataset']
+    if kit_name != None: 
+        kit = [d for d in dataset if "edc:kit_type" in d and d["id"] == kit_name]
+    else: # return all kits (still exclude assets that are not a KIT)
+        kit = [d for d in dataset if "edc:kit_type" in d]
+    catalog = response.json()
+    catalog['dataset'] = kit
+    return catalog
+
+
+async def get_catalog_by_kit(provider_id, asset_id, connector_url):
+    url = os.getenv('CATALOG_FIND_KIT') # fetch the correct endpoint URL
+    token_header = await get_token_header()
+
+    payload = {
+        "@context": {
+            "@vocab": "https://w3id.org/edc/v0.0.1/ns/"
+        },
+        "@type": "DatasetRequest",
+        "@id": asset_id,
+        "counterPartyAddress": connector_url,
+        "counterPartyId": provider_id,
+        "protocol": "dataspace-protocol-http:2025-1"
+    }
+
+    async with httpx.AsyncClient() as client:
+        print(f"Dataspace API triggered: {url}")
+        response = await client.post(url, json=payload, headers=token_header)
+        response.raise_for_status()
+        return response.json()
 
 # return a negotiation id
 # TODO: currently we always create a new one without checking existing valid one
@@ -326,7 +387,7 @@ async def get_transfer_credentials(asset_id, token_header):
 
 
 # TODO: currently, we create negotiation id every single time
-async def http_transfer(request_data, policy, metadata):
+async def http_transfer(request_data, policy, metadata, save_to_file=True, prefix=''):
     token_header = await get_token_header()
     asset_id = request_data['kit_name']
     connector_url = request_data['connector_url']
@@ -355,6 +416,10 @@ async def http_transfer(request_data, policy, metadata):
         else:
             response = await client.post(endpoint, headers=headers, json=payload)
 
+    # if not to save as a file, early exit
+    if not save_to_file:
+        return True, response
+
     # Now, we need to save KIT into the local drive
     print("KIT is being saved to the local drive")
     # create the workspace folder if not exist
@@ -366,7 +431,9 @@ async def http_transfer(request_data, policy, metadata):
     filename = None
     
     # if the provider specified the file name, then we use it
-    if 'default_file_name' in metadata:
+    if 'kit_type' in metadata and metadata['kit_type'].casefold() == 'composite':
+        filename = 'canvas' # this file has nos suffix as it can either be a JSON or ZIP file
+    elif 'default_file_name' in metadata:
         filename = metadata['default_file_name']
     else: # if not, then check if the provider provide content-disposition header
         name_string = response.headers.get('Content-Disposition')
@@ -388,7 +455,7 @@ async def http_transfer(request_data, policy, metadata):
     
     # if file name is NOT given, we use the asset id as the file name
     filename = asset_id    
-    kit_folder = workspace / f'{bpn}-{asset_id}'
+    kit_folder = workspace / prefix / f'{bpn}-{asset_id}'
     file_path = kit_folder / filename
 
     # check if overwriting is enabled
@@ -407,7 +474,7 @@ async def http_transfer(request_data, policy, metadata):
         async for chunk in response.aiter_bytes():
             f.write(chunk)
 
-    return True
+    return True, response
 
 
 # Convert the search query into tokens, otherwise, return None
@@ -607,3 +674,57 @@ async def http_transfer_2url(originator, agreement_id, endpoint_url):
         response.raise_for_status()
         print(f"Transfer data:\n")
         return response.json()
+
+
+async def composite_kit_handler():
+    pass
+
+async def composite_kit_execution_blocking(canvas, root_metadata):
+    seq = canvas['sequence']
+    state = 0 # start from zero, and increase by one to count the process stage
+
+    while True:
+        # change to the next stage of sequence
+        state += 1 
+        print(f'stage {state}{'-' * 30}')
+        state_str = str(state)
+
+        # exit if there is no more stages left, exit
+        if state_str not in seq: 
+            break
+
+        # Get the list of KITs in this stage
+        kits = seq[state_str]
+
+        for kit in kits:
+            kit_name = kit['kit_name']
+            provider_id = kit['provider_id']
+            connector_url = kit['connector_url']
+            action = kit['action']
+
+            catalog = await get_catalog(provider_id, connector_url, kit_name)
+            metadata_edc = catalog['dataset'][0] # always the first item in the dataset list
+            metadata = { # some fields has "edc:" prefix in the key to be removed
+                (k[4:] if k.startswith("edc:") else k): v
+                for k, v in metadata_edc.items()
+            }
+
+            # extract the policy
+            kit_type = metadata['kit_type']
+            policy = metadata['hasPolicy'][0] # TODO: for now we always use the first policy
+            
+            # TODO: for now, we ignore the nested composite KIT due to infinite nesting possibility
+            # We skip nested composite KITs until the nesting depth is restricted or handled properly
+            if kit_type != "basic":
+                continue
+
+            # download action
+            if action == 'download':
+                print("f'Download: {kit_name}")
+                success, _ = await http_transfer(kit, policy, metadata, save_to_file=True, prefix=root_metadata['folder_name'])
+            else: # TODO: implement other two actions: read and send-to 
+                print("currently we don't have the other actions implementation")
+            
+    return True
+
+        
