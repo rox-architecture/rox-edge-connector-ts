@@ -676,9 +676,8 @@ async def http_transfer_2url(originator, agreement_id, endpoint_url):
         return response.json()
 
 
-async def composite_kit_handler():
-    pass
 
+# TODO: this is a blocking operation, which is not desired for the long-term usage
 async def composite_kit_execution_blocking(canvas, root_metadata):
     seq = canvas['sequence']
     state = 0 # start from zero, and increase by one to count the process stage

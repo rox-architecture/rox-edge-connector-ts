@@ -20,7 +20,11 @@ load_dotenv() # load all .env variables
 #                Frontend Connection                #
 #####################################################
 from fastapi.middleware.cors import CORSMiddleware
-origins = ["*"] # To allow CORS for GUI connection
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+] # To allow CORS for GUI connection
+# origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -186,16 +190,15 @@ async def _create_composite_kit(input: CompositeKitData):
         kit_metadata = data["general_info"] | data['additional_info'] | {"components": data["components"]}
     else:
         kit_metadata = data["general_info"] | data['additional_info']
-    kit_metadata['access_type'] = access_info['access_type']
+    kit_metadata['asset_type'] = access_info['asset_type']
     kit_metadata['semantic_model'] = data["semantic_model"]
 
     # overwrite the domain and standard values based on the .env file
     kit_metadata['standardisation'] = os.getenv('STANDARDISATION')
     kit_metadata['DOMAIN'] = os.getenv('DOMAIN')
     
-    if access_info['access_type'].casefold() == "http".casefold():
+    if access_info['asset_type'].casefold() == "http".casefold():
         return await create_http_asset(kit_metadata, access_info)
-    
     return {}
 
 @app.post("/kit/basic/create/aws")
@@ -247,7 +250,7 @@ async def _kit_catalog(input: CatalogRequestData):
     else:
         return await get_catalog(input.provider_id, input.connector_url, input.kit_name)
 
-@app.post("/save-to-file/kit")
+@app.post("/download/kit")
 # Purpose: any KIT data will be saved as a file in the local memory. 
 #          If the KIT is a service endpoint, then the response is saved as a JSON file.
 async def _kit_download(input: KitAccessRequest):
@@ -317,6 +320,28 @@ async def _transfer(input: httpTransfer2url):
             status_code = 422,
             detail="Asset type other than http is not implemented"
         )
+
+@app.post("/run/compositekit")
+async def _compositekit_runner(input: CanvasData):
+    canvas = input.model_dump()
+    metadata = canvas['metadata']
+
+    if 'kit_name' not in metadata:
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="KIT name for representing this canvas must be provided"
+        )
+
+    if 'provider_id' not in metadata:
+        folder_name = f'{metadata['kit_name']}'
+    else:
+        folder_name = f'{metadata['provider_id']}-{metadata['kit_name']}'
+
+    metadata['folder_name'] = folder_name
+
+    result = await composite_kit_execution_blocking(canvas, metadata)
+    return {"success": result, "message": "The composite KIT is now being processed"}
+
 
 @app.get("/run/compositekit/{provider_id}/{kit_name}")
 # Purpose: Access all KITs inside a composite KIT alrady saved in the local memory

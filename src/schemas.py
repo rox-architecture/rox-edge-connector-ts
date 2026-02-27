@@ -66,7 +66,7 @@ class CompositeKitData(BaseModel):
     general_info: KitGeneralData
     access_info: HttpAccessData # | AwsAccessData
     components: List[KitReference] | None = None
-    semantic_model: dict = Field(..., min_length=1)
+    semantic_model: dict | None = None
     additional_info: AdditionalData | None = None
 
 class KitAccessRequest(BaseModel):
@@ -80,7 +80,11 @@ class CatalogRequestData(BaseModel):
     provider_id: str
     connector_url: str
     kit_name: str | None = None
-    
+
+class CanvasData(BaseModel):
+    metadata: dict = Field(..., min_length=1) # it must include kit_name at least
+    sequence: dict = Field(..., min_length=1)
+
 # Done
 class createContract(BaseModel):
     contract_id : str
