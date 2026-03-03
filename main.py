@@ -333,9 +333,9 @@ async def _compositekit_runner(input: CanvasData):
         )
 
     if 'provider_id' not in metadata:
-        folder_name = f'{metadata['kit_name']}'
+        folder_name = f"{metadata['kit_name']}"
     else:
-        folder_name = f'{metadata['provider_id']}-{metadata['kit_name']}'
+        folder_name = f"{metadata['provider_id']}-{metadata['kit_name']}"
 
     metadata['folder_name'] = folder_name
 

@@ -685,7 +685,7 @@ async def composite_kit_execution_blocking(canvas, root_metadata):
     while True:
         # change to the next stage of sequence
         state += 1 
-        print(f'stage {state}{'-' * 30}')
+        print(f"stage {state}{'-' * 30}")
         state_str = str(state)
 
         # exit if there is no more stages left, exit
