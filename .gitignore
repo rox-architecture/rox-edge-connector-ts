@@ -7,3 +7,5 @@ __pycache__
 KIT-Workspace/
 notebook.ipynb
 snippets.txt
+.env.tsi
+.env.dlr

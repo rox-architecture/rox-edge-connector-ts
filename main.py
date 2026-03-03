@@ -1,9 +1,11 @@
-from fastapi import FastAPI, File, UploadFile, Form
+from fastapi import FastAPI, File, UploadFile, Form, status
 from src.utils import *
 from src.schemas import *
 import uvicorn
 from dotenv import load_dotenv
 import os
+from pathlib import Path
+import zipfile
 
 #####################################################
 #                 Global Variables                  #
@@ -18,7 +20,11 @@ load_dotenv() # load all .env variables
 #                Frontend Connection                #
 #####################################################
 from fastapi.middleware.cors import CORSMiddleware
-origins = ["*"] # To allow CORS for GUI connection
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+] # To allow CORS for GUI connection
+# origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -26,6 +32,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+#####################################################
+#                Global Variables                   #
+#####################################################
+process_list = []
 
 #####################################################
 #            Setup API endpoints                    #
@@ -174,18 +185,20 @@ async def _create_composite_kit(input: CompositeKitData):
     data = input.model_dump()
     access_info = data["access_info"]
     
-    # create the KIT Metadata 
-    kit_metadata = data["general_info"] | data['additional_info'] | {"components": data["components"]}
-    kit_metadata['access_type'] = access_info['access_type']
+    # create the KIT Metadata
+    if 'components' in data: # Flattening
+        kit_metadata = data["general_info"] | data['additional_info'] | {"components": data["components"]}
+    else:
+        kit_metadata = data["general_info"] | data['additional_info']
+    kit_metadata['asset_type'] = access_info['asset_type']
     kit_metadata['semantic_model'] = data["semantic_model"]
 
     # overwrite the domain and standard values based on the .env file
     kit_metadata['standardisation'] = os.getenv('STANDARDISATION')
     kit_metadata['DOMAIN'] = os.getenv('DOMAIN')
     
-    if access_info['access_type'].casefold() == "http".casefold():
+    if access_info['asset_type'].casefold() == "http".casefold():
         return await create_http_asset(kit_metadata, access_info)
-    
     return {}
 
 @app.post("/kit/basic/create/aws")
@@ -230,9 +243,17 @@ async def _edit_asset(input: editAssetData):
 async def _kit_contracts(provider_id: str, asset_id: str):
     return await get_target_offer_by_id(provider_id, asset_id)
 
+@app.post("/catalog")
+async def _kit_catalog(input: CatalogRequestData):
+    if input.kit_name is None:
+        return await get_catalog(input.provider_id, input.connector_url)
+    else:
+        return await get_catalog(input.provider_id, input.connector_url, input.kit_name)
+
 @app.post("/download/kit")
-# Purpose: transfer data
-async def _basic_kit_download(input: KitDownloadRequest):
+# Purpose: any KIT data will be saved as a file in the local memory. 
+#          If the KIT is a service endpoint, then the response is saved as a JSON file.
+async def _kit_download(input: KitAccessRequest):
     request_data = input.model_dump()
     # retrieve the kit metadata
     metadata = await get_target_offer_by_id(request_data['provider_id'], request_data['kit_name'])
@@ -240,65 +261,55 @@ async def _basic_kit_download(input: KitDownloadRequest):
         return {"success": False, "message": "KIT cannot be found"}
     metadata.pop("dcat:distribution", None)
     
-    # validate the kit format
+    # check that required information is provided 
     if 'kit_type' not in metadata:
         return {"success": False, "message": "Invalid KIT format: kit_type information is missing"}
     if 'asset_type' not in metadata:
         return {"success": False, "message": "Invalid KIT format: asset_type information is missing"}
-
+    
     # extract the policy info from the kit metadata
     policy = metadata.pop('odrl:hasPolicy')[0] # TODO: currently we fetch the first policy
 
     # trigger the downloading process based on the asset type
-    # here we only care about the 'http' type KITs
-    if metadata['asset_type'].casefold() == 'http'.casefold(): 
-        success = await http_transfer(request_data, policy, metadata)
-    else: 
+    if metadata['asset_type'].casefold() == 'http'.casefold(): # http type case
+        success, _ = await http_transfer(request_data, policy, metadata, save_to_file=True, prefix='')
+        return {"success": success, "message": "Save-to-file execution completed", "metadata": metadata}
+    else: # TODO: aws, azure, etc. cases
         return {"success": False, "message": f"Unknown asset type {metadata['asset_type']}"}
 
-    # which type of kit is this? either basic or composite kit
-    kit_type = metadata['kit_type']
 
-    # For basic kit case, no more downloading is required; hence we finish here
-    if kit_type.casefold() == 'basic'.casefild(): 
-        if success: # if the main artifact is downloaded successfully
-            return {"success": True, "message": "KIT successfully downloaded"}
-        else:
-            return {"success": False, "message": "Error caused, transfer failed"}
-    # For composite kit case, we need to handle multiple kits in the list 'components'
-    elif kit_type.casefold() == 'composite'.casefold():
-        if 'components' not in metadata:
-            return {"success": False, "message": "Invalid KIT format: 'components' information is missing"}
-        
-        
+@app.post("/read-content/kit")
+# Purpose: any KIT data will be returned as the response to the user request
+#          This endpoint is essentially identical to save-to-file, but without saving into a file
+async def _kit_read(input: KitAccessRequest):
+    request_data = input.model_dump()
+    # retrieve the kit metadata
+    metadata = await get_target_offer_by_id(request_data['provider_id'], request_data['kit_name'])
+    if not metadata:
+        return {"success": False, "message": "KIT cannot be found"}
+    metadata.pop("dcat:distribution", None)
+    
+    # check that required information is provided 
+    if 'kit_type' not in metadata:
+        return {"success": False, "message": "Invalid KIT format: kit_type information is missing"}
+    if 'asset_type' not in metadata:
+        return {"success": False, "message": "Invalid KIT format: asset_type information is missing"}
+    
+    # extract the policy info from the kit metadata
+    policy = metadata.pop('odrl:hasPolicy')[0] # TODO: currently we fetch the first policy
 
-        kits = metadata['components'] # get the list of kits
-        for k in kits: # iterate over kits
-            # get additional required data by retreiving the kit metadata information
-            provider_id = k['provider_id']
-            kit_name = k['kit_name']
-            metadata = await get_target_offer_by_id(provider_id, kit_name)
-            connector_url = metadata['originator']
-            policies = metadata['policy']
-        
-            # dynamically 
-
-
-    else:
-        return {"success": False, "message": f"Unknown kit_type {kit_type}"}
-
+    # trigger the downloading process based on the asset type
+    if metadata['asset_type'].casefold() == 'http'.casefold(): # http type case
+        success, response = await http_transfer(request_data, policy, metadata, save_to_file=False, prefix = '')
+        return {"success": success, "message": "Read-content execution completed", "metadata": metadata, "response": response}
+    else: # TODO: aws, azure, etc. cases
+        return {"success": False, "message": f"Unknown asset type {metadata['asset_type']}"}
 
 #TODO:
-@app.post("kit/basic/sendto")
+@app.post("/send-to-else/kit")
 # Purpose: basic kit transfer
-async def _negotiate(input: KitDownloadRequest):
-    if input.asset_type == 'http':
-        return await http_transfer(input.connector_url, input.provider_id, input.policy, input.asset_id, input.payload, input.post_action)
-    else:
-        raise HTTPException(
-            status_code = 422,
-            detail="Asset type other than http is not implemented"
-        )
+async def _negotiate(input: KitAccessRequest):
+    return {"message": "Not yet implemented"}
 
 @app.post("/http/transfer_2url")
 async def _transfer(input: httpTransfer2url):
@@ -309,6 +320,93 @@ async def _transfer(input: httpTransfer2url):
             status_code = 422,
             detail="Asset type other than http is not implemented"
         )
+
+@app.post("/run/compositekit")
+async def _compositekit_runner(input: CanvasData):
+    canvas = input.model_dump()
+    metadata = canvas['metadata']
+
+    if 'kit_name' not in metadata:
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="KIT name for representing this canvas must be provided"
+        )
+
+    if 'provider_id' not in metadata:
+        folder_name = f'{metadata['kit_name']}'
+    else:
+        folder_name = f'{metadata['provider_id']}-{metadata['kit_name']}'
+
+    metadata['folder_name'] = folder_name
+
+    result = await composite_kit_execution_blocking(canvas, metadata)
+    return {"success": result, "message": "The composite KIT is now being processed"}
+
+
+@app.get("/run/compositekit/{provider_id}/{kit_name}")
+# Purpose: Access all KITs inside a composite KIT alrady saved in the local memory
+async def _compositekit_handler(provider_id: str, kit_name: str):
+    # find the locally saved kit with the matching kit_name
+    kit_workspace_path = Path.cwd() / "KIT-Workspace"
+    folder_to_find = f'{provider_id}-{kit_name}'
+    kit_folder_path = kit_workspace_path / folder_to_find
+    canvas_path = kit_folder_path / 'canvas'
+
+    # check if the kit is located in the local memory
+    if not kit_folder_path.is_dir():
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Specified KIT folder is not found"
+        )
+    
+    # check if metadata is also saved in the folder
+    metadata_file = kit_folder_path / "metadata.json"
+    if not metadata_file.is_file():
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The KIT metadata is not found or in an invalid format"
+        )
+    
+    # retrieve the metadata and check the required information is present
+    with metadata_file.open("r", encoding="utf-8") as f:
+        metadata = json.load(f)
+    if 'kit_type' not in metadata or metadata['kit_type'] != 'composite': # check the kit type is 'composite'
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The KIT found is not a composite KIT"
+        )
+    if not canvas_path.is_file(): # check there is a valid canvas file
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Canvas file not found or not a file"
+        )
+
+    # If the canvas file is a zip file, unzip it
+    if zipfile.is_zipfile(canvas_path):
+        zip_path = kit_folder_path / 'canvas.zip'
+        canvas_path.rename(zip_path) # rename the zip file so that the extracted canvas file do not conflict with the same name
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            z.extractall(kit_folder_path)
+    
+    # check if the canvas file exists
+    if not canvas_path.is_file():
+        raise HTTPException( 
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Canvas file not found"
+        )
+
+    # Read the canvas file
+    with canvas_path.open('r', encoding='utf-8') as f:
+        canvas = json.load(f)
+    
+    # add provider_id information in the metadata for processing
+    metadata['provider_id'] = provider_id
+    metadata['folder_name'] = folder_to_find
+
+    # TODO: make this part non-blocking by using proper process handling
+    # currently, it is a blocking method (simple)
+    result = await composite_kit_execution_blocking(canvas, metadata)
+    return {"success": result, "message": "The composite KIT is now being processed"}
 
 @app.get("/negotiations")
 # Purpose: Return all the negotiations made in the past
